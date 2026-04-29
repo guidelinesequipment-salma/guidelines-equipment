@@ -234,7 +234,10 @@ async function togglePositional(wardId, patientId, key) {
 async function setYesNo(wardId, patientId, field, val) {
   const p = getPatient(wardId, patientId);
   if (!p) return;
-  p[field] = (p[field] === val) ? null : val;
+  // val arrives as a string ("true"/"false") from inline HTML onclick,
+  // so normalise it to a real boolean before comparing.
+  const boolVal = (val === true || val === 'true');
+  p[field] = (p[field] === boolVal) ? null : boolVal;
   renderCard(wardId, p);
   await db.from('patients').update({ [field]: p[field] }).eq('id', patientId);
 }
