@@ -8,5 +8,5 @@
 //  4. Copy "anon / public" key → paste as SUPABASE_ANON_KEY
 // ============================================================
 
-const SUPABASE_URL      = 'https://YOUR_PROJECT_ID.supabase.co';
-const SUPABASE_ANON_KEY = 'YOUR_ANON_PUBLIC_KEY';
+const SUPABASE_URL      = 'https://mdhbuqxymcklugwcdqdg.supabase.co/rest/v1/';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1kaGJ1cXh5bWNrbHVnd2NkcWRnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzc0NzU4NzQsImV4cCI6MjA5MzA1MTg3NH0.44BlxaIkRH8XU2_xjWHfXDRsYQyNv2ov83xL3rJ9zyc';
