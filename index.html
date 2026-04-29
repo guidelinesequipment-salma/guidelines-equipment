@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Patient Care Checklist</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header>
+  <div class="header-icon">🏥</div>
+  <div>
+    <h1>Patient Care Checklist</h1>
+    <p>Positional · Splinting · Speech · Sorted by Room · Expires every 3 months</p>
+  </div>
+  <div class="header-status" id="db-status">
+    <span class="status-dot" id="status-dot"></span>
+    <span id="status-text">Connecting…</span>
+  </div>
+</header>
+
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('ward_a',this)">🛏 Ward A <span class="badge" id="badge-ward_a">0</span></button>
+  <button class="tab" onclick="switchTab('ward_b',this)">🛏 Ward B <span class="badge" id="badge-ward_b">0</span></button>
+  <button class="tab" onclick="switchTab('icu_1',this)">🔴 ICU 1 <span class="badge" id="badge-icu_1">0</span></button>
+  <button class="tab" onclick="switchTab('icu_2',this)">🔴 ICU 2 <span class="badge" id="badge-icu_2">0</span></button>
+</div>
+
+<div class="main">
+  <!-- Loading overlay -->
+  <div id="loading-overlay" class="loading-overlay">
+    <div class="loading-spinner"></div>
+    <p>Loading patients…</p>
+  </div>
+
+  <div class="ward-panel active" id="panel-ward_a">
+    <div class="ward-header">
+      <div class="ward-title"><span class="ward-emoji">🛏</span><div><div class="ward-name">Ward A</div><div class="ward-sub">General Rehabilitation Ward</div></div></div>
+      <button class="add-patient-btn" onclick="openModal('ward_a')">+ Add Patient</button>
+    </div>
+    <div class="patients-grid" id="grid-ward_a"></div>
+    <div class="empty-state" id="empty-ward_a"><div class="icon">👤</div><p>No patients yet.<br>Click <strong>+ Add Patient</strong> to begin.</p></div>
+  </div>
+
+  <div class="ward-panel" id="panel-ward_b">
+    <div class="ward-header">
+      <div class="ward-title"><span class="ward-emoji">🛏</span><div><div class="ward-name">Ward B</div><div class="ward-sub">General Rehabilitation Ward</div></div></div>
+      <button class="add-patient-btn" onclick="openModal('ward_b')">+ Add Patient</button>
+    </div>
+    <div class="patients-grid" id="grid-ward_b"></div>
+    <div class="empty-state" id="empty-ward_b"><div class="icon">👤</div><p>No patients yet.<br>Click <strong>+ Add Patient</strong> to begin.</p></div>
+  </div>
+
+  <div class="ward-panel" id="panel-icu_1">
+    <div class="ward-header">
+      <div class="ward-title"><span class="ward-emoji">🔴</span><div><div class="ward-name">ICU 1</div><div class="ward-sub">Intensive Care Unit</div></div></div>
+      <button class="add-patient-btn" onclick="openModal('icu_1')">+ Add Patient</button>
+    </div>
+    <div class="patients-grid" id="grid-icu_1"></div>
+    <div class="empty-state" id="empty-icu_1"><div class="icon">👤</div><p>No patients yet.<br>Click <strong>+ Add Patient</strong> to begin.</p></div>
+  </div>
+
+  <div class="ward-panel" id="panel-icu_2">
+    <div class="ward-header">
+      <div class="ward-title"><span class="ward-emoji">🔴</span><div><div class="ward-name">ICU 2</div><div class="ward-sub">Intensive Care Unit</div></div></div>
+      <button class="add-patient-btn" onclick="openModal('icu_2')">+ Add Patient</button>
+    </div>
+    <div class="patients-grid" id="grid-icu_2"></div>
+    <div class="empty-state" id="empty-icu_2"><div class="icon">👤</div><p>No patients yet.<br>Click <strong>+ Add Patient</strong> to begin.</p></div>
+  </div>
+</div>
+
+<!-- Add / Edit Modal -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h2 id="modal-title">➕ Add New Patient</h2>
+
+    <div class="form-group">
+      <label>Patient Name *</label>
+      <input type="text" id="input-name" placeholder="e.g. Juan dela Cruz" />
+    </div>
+    <div class="form-group">
+      <label>Room Number *</label>
+      <input type="text" id="input-room" placeholder="e.g. Room 2A" />
+    </div>
+    <div class="form-group">
+      <label>MRN (Medical Record Number)</label>
+      <input type="text" id="input-mrn" placeholder="e.g. 00123456" />
+      <div class="form-note">🔒 Will be masked on cards. Tap 👁 to reveal for 8 seconds.</div>
+    </div>
+
+    <div class="form-section-title">📐 Positional Guidelines</div>
+    <div class="modal-pills">
+      <button class="modal-pill" id="pill-supine" onclick="togglePill('supine')">Supine</button>
+      <button class="modal-pill" id="pill-sidelying" onclick="togglePill('sidelying')">Side-lying</button>
+    </div>
+    <div class="form-group" style="margin-top:10px">
+      <label>Notes (optional)</label>
+      <textarea id="note-positional" placeholder="e.g. elevate head 30°, right side preferred…"></textarea>
+    </div>
+
+    <div class="form-section-title">🦾 Splinting Guideline in Room</div>
+    <div class="modal-yn">
+      <button class="yes" id="yn-splint-yes" onclick="toggleYN('splinting','yes')">✓ Yes</button>
+      <button class="no" id="yn-splint-no" onclick="toggleYN('splinting','no')">✕ No</button>
+    </div>
+    <div class="form-group" style="margin-top:10px">
+      <label>Notes (optional)</label>
+      <textarea id="note-splinting" placeholder="e.g. resting hand splint, worn 2hrs on/off…"></textarea>
+    </div>
+
+    <div class="form-section-title">🗣 Speech Guideline in Room</div>
+    <div class="modal-yn">
+      <button class="yes" id="yn-speech-yes" onclick="toggleYN('speech','yes')">✓ Yes</button>
+      <button class="no" id="yn-speech-no" onclick="toggleYN('speech','no')">✕ No</button>
+    </div>
+    <div class="form-group" style="margin-top:10px">
+      <label>Notes (optional)</label>
+      <textarea id="note-speech" placeholder="e.g. thickened fluids level 2, AAC board on right…"></textarea>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal()">Cancel</button>
+      <button class="btn-primary" id="modal-submit-btn" onclick="submitModal()">Add Patient</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- Supabase JS CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
