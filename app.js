@@ -99,8 +99,12 @@ function togglePill(key) {
 function toggleYN(field, val) {
   const boolVal = (val === 'yes');
   modalForm[field] = (modalForm[field] === boolVal) ? null : boolVal;
-  document.getElementById('yn-' + field + '-yes').classList.toggle('active', modalForm[field] === true);
-  document.getElementById('yn-' + field + '-no').classList.toggle('active',  modalForm[field] === false);
+  // HTML uses 'splint' not 'splinting' in the button IDs
+  const shortField = field === 'splinting' ? 'splint' : field;
+  const yesEl = document.getElementById('yn-' + shortField + '-yes');
+  const noEl  = document.getElementById('yn-' + shortField + '-no');
+  if (yesEl) yesEl.classList.toggle('active', modalForm[field] === true);
+  if (noEl)  noEl.classList.toggle('active',  modalForm[field] === false);
 }
 
 function resetModal() {
@@ -379,6 +383,7 @@ function renderCard(wardId, patient) {
 // ── Render full ward grid ─────────────────────────────────────
 function renderWard(wardId) {
   const grid = document.getElementById('grid-' + wardId);
+  if (!grid) return;  // safety guard
   grid.innerHTML = '';
   state[wardId].forEach(patient => {
     const div = document.createElement('div');
