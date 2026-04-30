@@ -289,7 +289,7 @@ async function submitModal() {
     showToast('✓ Patient updated', 'success');
   } else {
     const { error } = await db.from('patients').insert({
-      ward:                 currentWard,
+      ward:                 wardToLoad,
       patient_name:         name,
       room_number:          room,
       mrn:                  mrn || null,
