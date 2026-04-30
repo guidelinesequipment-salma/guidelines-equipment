@@ -57,6 +57,12 @@ function sortPatients(arr) {
     roomSortKey(a.room_number).localeCompare(roomSortKey(b.room_number)));
 }
 
+// ── Helpers ──────────────────────────────────────────────────
+function getInitials(name) {
+  const parts = (name || '').trim().split(' ').filter(p => p.length > 0);
+  return parts.length ? parts.map(w => w[0]).join('').toUpperCase().slice(0, 2) : '??';
+}
+
 // ── Expiry ───────────────────────────────────────────────────
 function getExpiryInfo(patient) {
   const createdAt = new Date(patient.created_at).getTime();
