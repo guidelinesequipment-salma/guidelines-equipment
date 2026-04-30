@@ -1,10 +1,12 @@
 // ============================================================
 //  app.js  —  Patient Care Checklist
 //  Supabase-backed, fully persistent
+//  Audited & cleaned — no duplicate logic, no stale alerts
 // ============================================================
 
 const THREE_MONTHS_MS = 90 * 24 * 60 * 60 * 1000;
 const WARDS = ['ward_a', 'ward_b', 'icu_1', 'icu_2'];
+const WARD_LABELS = { ward_a: 'Ward A', ward_b: 'Ward B', icu_1: 'ICU 1', icu_2: 'ICU 2' };
 
 // ── Supabase client ──────────────────────────────────────────
 let db;
@@ -14,9 +16,9 @@ try {
   setStatus('error', 'Config missing');
 }
 
-// ── Local state (mirrors DB) ─────────────────────────────────
+// ── Local state ──────────────────────────────────────────────
 const state = { ward_a: [], ward_b: [], icu_1: [], icu_2: [] };
-let revealed    = {};
+let revealed    = {};   // patientId → auto-hide timeout handle
 let currentWard = null;
 let editingId   = null;
 let modalForm   = {
@@ -24,11 +26,11 @@ let modalForm   = {
   splinting: null, splinting_na: false,
   speech: null
 };
-let saveTimers = {};
+let saveTimers = {};    // patientId+field → debounce handle
 
 // ── Status indicator ─────────────────────────────────────────
 function setStatus(type, text) {
-  document.getElementById('status-dot').className   = 'status-dot ' + type;
+  document.getElementById('status-dot').className    = 'status-dot ' + type;
   document.getElementById('status-text').textContent = text;
 }
 
@@ -52,13 +54,17 @@ function roomSortKey(room) {
     .replace(/(\d+)/g, m => m.padStart(6, '0'));
 }
 function sortPatients(arr) {
-  return [...arr].sort((a, b) => roomSortKey(a.room_number).localeCompare(roomSortKey(b.room_number)));
+  return [...arr].sort((a, b) =>
+    roomSortKey(a.room_number).localeCompare(roomSortKey(b.room_number)));
 }
 
 // ── Masking ──────────────────────────────────────────────────
 function maskName(name) {
+  // FIX: filter empty parts so extra spaces don't produce blank tokens
   return (name || '').trim().split(' ')
-    .map(p => p[0] + '●'.repeat(Math.max(p.length - 1, 2))).join(' ');
+    .filter(p => p.length > 0)
+    .map(p => p[0] + '●'.repeat(Math.max(p.length - 1, 2)))
+    .join(' ');
 }
 function maskMRN(mrn) {
   if (!mrn) return '—';
@@ -70,7 +76,9 @@ function maskRoom(room) {
   return room[0] + '●●' + room.slice(-1);
 }
 function getInitials(name) {
-  return (name || '??').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+  // FIX: filter empty parts to avoid blank initials from extra spaces
+  const parts = (name || '').trim().split(' ').filter(p => p.length > 0);
+  return parts.length ? parts.map(w => w[0]).join('').toUpperCase().slice(0, 2) : '??';
 }
 
 // ── Expiry ───────────────────────────────────────────────────
@@ -86,27 +94,30 @@ function getExpiryInfo(patient) {
   return { pct, daysLeft, expired, soon };
 }
 
-// ── Incomplete guidelines check ───────────────────────────────
-// Returns array of label strings for any guideline not yet set
+// ── Missing guidelines ────────────────────────────────────────
+// Returns string[] of guideline names that are not yet set
 function getMissingGuidelines(patient) {
   const missing = [];
-
-  // Positional: missing if none of supine, sidelying, or N/A is set
-  if (!patient.positional_supine && !patient.positional_sidelying && !patient.positional_na) {
+  if (!patient.positional_supine && !patient.positional_sidelying && !patient.positional_na)
     missing.push('Positional');
-  }
-
-  // Splinting: missing if null and not N/A
-  if (patient.splinting === null && !patient.splinting_na) {
+  if (patient.splinting === null && !patient.splinting_na)
     missing.push('Splinting');
-  }
-
-  // Speech: missing if null (speech has no N/A option)
-  if (patient.speech === null) {
+  if (patient.speech === null)
     missing.push('Speech');
-  }
-
   return missing;
+}
+
+// ── Shared alert badge refresh ────────────────────────────────
+// FIX: single source of truth — called by renderWard & all inline toggles
+function refreshAlertBadge() {
+  const all = WARDS.flatMap(w => state[w]);
+  const total = new Set([
+    ...all.filter(p => getMissingGuidelines(p).length > 0).map(p => p.id),
+    ...all.filter(p => (p.splinting === null || p.splinting === false) && !p.splinting_na).map(p => p.id),
+    ...all.filter(p => p.speech === null || p.speech === false).map(p => p.id)
+  ]).size;
+  const badge = document.getElementById('badge-alerts');
+  if (badge) badge.textContent = total;
 }
 
 // ── Tab switching ─────────────────────────────────────────────
@@ -118,9 +129,8 @@ function switchTab(wardId, btn) {
   if (wardId === 'alerts') renderAlerts();
 }
 
-// ── Modal helpers ─────────────────────────────────────────────
+// ── Modal: toggle positional pill ────────────────────────────
 function togglePill(key) {
-  // If clicking N/A for positional, turn off supine & sidelying
   if (key === 'positional_na') {
     modalForm.positional_na = !modalForm.positional_na;
     if (modalForm.positional_na) {
@@ -132,7 +142,6 @@ function togglePill(key) {
     document.getElementById('pill-positional_na').classList.toggle('active', modalForm.positional_na);
     return;
   }
-  // If clicking supine or sidelying, turn off N/A
   if (key === 'supine' || key === 'sidelying') {
     modalForm[key] = !modalForm[key];
     if (modalForm[key]) {
@@ -146,9 +155,10 @@ function togglePill(key) {
   document.getElementById('pill-' + key).classList.toggle('active', modalForm[key]);
 }
 
+// ── Modal: toggle Yes / No / N/A ─────────────────────────────
 function toggleYN(field, val) {
-  // Handle N/A for splinting
   if (val === 'na') {
+    // N/A toggle for splinting
     modalForm.splinting_na = !modalForm.splinting_na;
     if (modalForm.splinting_na) {
       modalForm.splinting = null;
@@ -165,8 +175,8 @@ function toggleYN(field, val) {
   const boolVal    = (val === 'yes');
   const shortField = field === 'splinting' ? 'splint' : field;
 
-  // If picking yes/no for splinting, clear N/A
   if (field === 'splinting') {
+    // Picking Yes/No clears N/A
     modalForm.splinting_na = false;
     const naEl = document.getElementById('yn-splint-na');
     if (naEl) naEl.classList.remove('active');
@@ -180,6 +190,7 @@ function toggleYN(field, val) {
   if (noEl)  noEl.classList.toggle('active',  modalForm[field] === false);
 }
 
+// ── Modal: reset to blank state ───────────────────────────────
 function resetModal() {
   ['input-name', 'input-room', 'input-mrn',
    'note-positional', 'note-splinting', 'note-speech'].forEach(id => {
@@ -199,6 +210,7 @@ function resetModal() {
   });
 }
 
+// ── Modal: open for new patient ───────────────────────────────
 function openModal(ward) {
   currentWard = ward;
   editingId   = null;
@@ -210,6 +222,7 @@ function openModal(ward) {
   setTimeout(() => document.getElementById('input-name').focus(), 100);
 }
 
+// ── Modal: open for editing existing patient ──────────────────
 function openEditModal(wardId, patientId) {
   const p = getPatient(wardId, patientId);
   if (!p) return;
@@ -218,18 +231,18 @@ function openEditModal(wardId, patientId) {
   resetModal();
 
   document.getElementById('input-name').value      = p.patient_name;
-  document.getElementById('input-room').value      = p.room_number;
+  document.getElementById('input-room').value      = p.room_number || '';
   document.getElementById('input-mrn').value       = p.mrn || '';
   document.getElementById('note-positional').value = p.note_positional || '';
   document.getElementById('note-splinting').value  = p.note_splinting  || '';
   document.getElementById('note-speech').value     = p.note_speech     || '';
 
-  modalForm.supine         = !!p.positional_supine;
-  modalForm.sidelying      = !!p.positional_sidelying;
-  modalForm.positional_na  = !!p.positional_na;
-  modalForm.splinting      = p.splinting;
-  modalForm.splinting_na   = !!p.splinting_na;
-  modalForm.speech         = p.speech;
+  modalForm.supine        = !!p.positional_supine;
+  modalForm.sidelying     = !!p.positional_sidelying;
+  modalForm.positional_na = !!p.positional_na;
+  modalForm.splinting     = p.splinting;
+  modalForm.splinting_na  = !!p.splinting_na;
+  modalForm.speech        = p.speech;
 
   document.getElementById('pill-supine').classList.toggle('active',        modalForm.supine);
   document.getElementById('pill-sidelying').classList.toggle('active',     modalForm.sidelying);
@@ -246,13 +259,14 @@ function openEditModal(wardId, patientId) {
   document.getElementById('modal').classList.add('open');
 }
 
+// ── Modal: close ──────────────────────────────────────────────
 function closeModal() {
   document.getElementById('modal').classList.remove('open');
   currentWard = null;
   editingId   = null;
 }
 
-// ── Submit modal (add or edit) ────────────────────────────────
+// ── Modal: submit (add or edit) ───────────────────────────────
 async function submitModal() {
   const name    = document.getElementById('input-name').value.trim();
   const room    = document.getElementById('input-room').value.trim();
@@ -265,36 +279,52 @@ async function submitModal() {
   if (!name) { nameEl.style.borderColor = 'var(--red)'; nameEl.focus(); return; }
   nameEl.style.borderColor = '';
 
-  const payload = {
-    ward:                 currentWard,
-    patient_name:         name,
-    room_number:          room,
-    mrn:                  mrn || null,
-    positional_supine:    modalForm.supine,
-    positional_sidelying: modalForm.sidelying,
-    positional_na:        modalForm.positional_na,
-    splinting:            modalForm.splinting_na ? null : modalForm.splinting,
-    splinting_na:         modalForm.splinting_na,
-    speech:               modalForm.speech,
-    note_positional:      notePos || null,
-    note_splinting:       noteSpl || null,
-    note_speech:          noteSpe || null,
-  };
-
   closeModal();
   setLoading(true);
 
   if (editingId) {
-    const { error } = await db.from('patients').update(payload).eq('id', editingId);
+    // FIX: do not send `ward` in update — it never changes
+    const { error } = await db.from('patients').update({
+      patient_name:         name,
+      room_number:          room,
+      mrn:                  mrn || null,
+      positional_supine:    modalForm.supine,
+      positional_sidelying: modalForm.sidelying,
+      positional_na:        modalForm.positional_na,
+      splinting:            modalForm.splinting_na ? null : modalForm.splinting,
+      splinting_na:         modalForm.splinting_na,
+      speech:               modalForm.speech,
+      note_positional:      notePos || null,
+      note_splinting:       noteSpl || null,
+      note_speech:          noteSpe || null,
+    }).eq('id', editingId);
+
     if (error) { showToast('❌ Save failed: ' + error.message, 'error'); setLoading(false); return; }
     showToast('✓ Patient updated', 'success');
   } else {
-    const { error } = await db.from('patients').insert(payload);
+    const { error } = await db.from('patients').insert({
+      ward:                 currentWard,
+      patient_name:         name,
+      room_number:          room,
+      mrn:                  mrn || null,
+      positional_supine:    modalForm.supine,
+      positional_sidelying: modalForm.sidelying,
+      positional_na:        modalForm.positional_na,
+      splinting:            modalForm.splinting_na ? null : modalForm.splinting,
+      splinting_na:         modalForm.splinting_na,
+      speech:               modalForm.speech,
+      note_positional:      notePos || null,
+      note_splinting:       noteSpl || null,
+      note_speech:          noteSpe || null,
+    });
+
     if (error) { showToast('❌ Add failed: ' + error.message, 'error'); setLoading(false); return; }
     showToast('✓ Patient added', 'success');
   }
 
   await loadWard(currentWard);
+  // FIX: refresh alerts after any save so the alerts tab stays current
+  refreshAlertBadge();
   setLoading(false);
 }
 
@@ -306,10 +336,12 @@ async function deletePatient(wardId, patientId) {
   if (error) { showToast('❌ Delete failed', 'error'); setLoading(false); return; }
   showToast('Patient removed', '');
   await loadWard(wardId);
+  // FIX: refresh alerts after delete
+  refreshAlertBadge();
   setLoading(false);
 }
 
-// ── Toggle positional pill on card (auto-save) ────────────────
+// ── Inline: toggle positional pill ───────────────────────────
 async function togglePositional(wardId, patientId, key) {
   const p = getPatient(wardId, patientId);
   if (!p) return;
@@ -318,9 +350,10 @@ async function togglePositional(wardId, patientId, key) {
     p.positional_na = !p.positional_na;
     if (p.positional_na) { p.positional_supine = false; p.positional_sidelying = false; }
     renderCard(wardId, p);
+    refreshAlertBadge(); // FIX: keep badge in sync
     await db.from('patients').update({
-      positional_na: p.positional_na,
-      positional_supine: p.positional_supine,
+      positional_na:        p.positional_na,
+      positional_supine:    p.positional_supine,
       positional_sidelying: p.positional_sidelying
     }).eq('id', patientId);
     return;
@@ -328,12 +361,15 @@ async function togglePositional(wardId, patientId, key) {
 
   const field = 'positional_' + key;
   p[field] = !p[field];
-  if (p[field]) p.positional_na = false; // turning on supine/sidelying clears N/A
+  if (p[field]) p.positional_na = false;
   renderCard(wardId, p);
-  await db.from('patients').update({ [field]: p[field], positional_na: p.positional_na }).eq('id', patientId);
+  refreshAlertBadge(); // FIX: keep badge in sync
+  await db.from('patients').update({
+    [field]: p[field], positional_na: p.positional_na
+  }).eq('id', patientId);
 }
 
-// ── Toggle Yes/No/NA on card (auto-save) ─────────────────────
+// ── Inline: toggle Yes / No / N/A ────────────────────────────
 async function setYesNo(wardId, patientId, field, val) {
   const p = getPatient(wardId, patientId);
   if (!p) return;
@@ -342,7 +378,10 @@ async function setYesNo(wardId, patientId, field, val) {
     p.splinting_na = !p.splinting_na;
     if (p.splinting_na) p.splinting = null;
     renderCard(wardId, p);
-    await db.from('patients').update({ splinting: p.splinting, splinting_na: p.splinting_na }).eq('id', patientId);
+    refreshAlertBadge(); // FIX: keep badge in sync
+    await db.from('patients').update({
+      splinting: p.splinting, splinting_na: p.splinting_na
+    }).eq('id', patientId);
     return;
   }
 
@@ -350,13 +389,14 @@ async function setYesNo(wardId, patientId, field, val) {
   if (field === 'splinting') p.splinting_na = false;
   p[field] = (p[field] === boolVal) ? null : boolVal;
   renderCard(wardId, p);
+  refreshAlertBadge(); // FIX: keep badge in sync
 
   const updatePayload = { [field]: p[field] };
   if (field === 'splinting') updatePayload.splinting_na = false;
   await db.from('patients').update(updatePayload).eq('id', patientId);
 }
 
-// ── Note auto-save (debounced 1.2s) ──────────────────────────
+// ── Inline: note auto-save (debounced 1.2 s) ─────────────────
 function updateNote(wardId, patientId, section, value) {
   const p = getPatient(wardId, patientId);
   if (!p) return;
@@ -368,18 +408,48 @@ function updateNote(wardId, patientId, section, value) {
   }, 1200);
 }
 
-// ── Reveal / mask ─────────────────────────────────────────────
+// ── Reveal / mask patient info ────────────────────────────────
 function toggleReveal(patientId) {
+  // FIX: only re-render the ward that owns this patient, not all wards
+  const ownerWard = WARDS.find(w => state[w].some(p => p.id === patientId));
+
   if (revealed[patientId]) {
     clearTimeout(revealed[patientId]);
     delete revealed[patientId];
   } else {
     revealed[patientId] = setTimeout(() => {
       delete revealed[patientId];
-      WARDS.forEach(w => state[w].forEach(p => { if (p.id === patientId) renderCard(w, p); }));
+      if (ownerWard) {
+        const patient = getPatient(ownerWard, patientId);
+        if (patient) renderCard(ownerWard, patient);
+      }
     }, 8000);
   }
-  WARDS.forEach(w => state[w].forEach(p => { if (p.id === patientId) renderCard(w, p); }));
+
+  if (ownerWard) {
+    const patient = getPatient(ownerWard, patientId);
+    if (patient) renderCard(ownerWard, patient);
+  }
+}
+
+// ── Reveal / mask from alert cards ───────────────────────────
+function toggleRevealAlert(patientId, wardId) {
+  // FIX: only re-render the specific ward card + refresh alerts view
+  if (revealed[patientId]) {
+    clearTimeout(revealed[patientId]);
+    delete revealed[patientId];
+  } else {
+    revealed[patientId] = setTimeout(() => {
+      delete revealed[patientId];
+      const patient = getPatient(wardId, patientId);
+      if (patient) renderCard(wardId, patient);
+      renderAlerts();
+    }, 8000);
+  }
+
+  const patient = getPatient(wardId, patientId);
+  if (patient) renderCard(wardId, patient);
+  renderAlerts();
 }
 
 // ── Get patient from local state ──────────────────────────────
@@ -387,7 +457,7 @@ function getPatient(wardId, patientId) {
   return state[wardId]?.find(p => p.id === patientId);
 }
 
-// ── Render a single card ──────────────────────────────────────
+// ── Render a single ward card ─────────────────────────────────
 function renderCard(wardId, patient) {
   const el = document.getElementById('card-' + patient.id);
   if (!el) return;
@@ -396,7 +466,7 @@ function renderCard(wardId, patient) {
   const isRevealed = !!revealed[patient.id];
   const missing    = getMissingGuidelines(patient);
 
-  const displayName = isRevealed ? patient.patient_name : maskName(patient.patient_name);
+  const displayName = isRevealed ? patient.patient_name    : maskName(patient.patient_name);
   const displayRoom = isRevealed ? (patient.room_number || '—') : maskRoom(patient.room_number);
   const displayMRN  = isRevealed ? (patient.mrn || 'Not entered') : maskMRN(patient.mrn);
 
@@ -406,25 +476,22 @@ function renderCard(wardId, patient) {
   const expiryClass = expired ? 'expired'    : soon ? 'soon'          : 'ok';
   const expiryText  = expired
     ? '⚠ Expired — renew now'
-    : soon
-      ? `⏳ ${daysLeft}d left — renew soon`
-      : `✓ ${daysLeft}d remaining`;
+    : soon ? `⏳ ${daysLeft}d left — renew soon`
+    : `✓ ${daysLeft}d remaining`;
 
-  // Missing guidelines banner
   const missingBanner = missing.length > 0
-    ? `<div class="missing-banner">
-         ⚠ Pending: ${missing.map(m => `<span class="missing-tag">${m}</span>`).join('')}
-       </div>`
+    ? `<div class="missing-banner">⚠ Pending: ${missing.map(m =>
+        `<span class="missing-tag">${m}</span>`).join('')}</div>`
     : `<div class="complete-banner">✅ All guidelines set</div>`;
 
-  const supine      = !!patient.positional_supine;
-  const sidelying   = !!patient.positional_sidelying;
-  const posNA       = !!patient.positional_na;
-  const splintYes   = patient.splinting === true  && !patient.splinting_na;
-  const splintNo    = patient.splinting === false && !patient.splinting_na;
-  const splintNA    = !!patient.splinting_na;
-  const speechYes   = patient.speech === true;
-  const speechNo    = patient.speech === false;
+  const supine    = !!patient.positional_supine;
+  const sidelying = !!patient.positional_sidelying;
+  const posNA     = !!patient.positional_na;
+  const splintYes = patient.splinting === true  && !patient.splinting_na;
+  const splintNo  = patient.splinting === false && !patient.splinting_na;
+  const splintNA  = !!patient.splinting_na;
+  const speechYes = patient.speech === true;
+  const speechNo  = patient.speech === false;
 
   const noteArea = (section, placeholder) =>
     `<textarea class="note-field" rows="2" placeholder="${placeholder}"
@@ -507,14 +574,12 @@ function renderCard(wardId, patient) {
     </div>`;
 }
 
-// ── Render alert card (compact, read-only) ───────────────────
+// ── Render compact alert card ─────────────────────────────────
 function renderAlertCard(container, patient, wardId) {
-  const wardLabels = {
-    ward_a: 'Ward A', ward_b: 'Ward B', icu_1: 'ICU 1', icu_2: 'ICU 2'
-  };
   const missing    = getMissingGuidelines(patient);
   const isRevealed = !!revealed[patient.id];
-  const displayName = isRevealed ? patient.patient_name : maskName(patient.patient_name);
+
+  const displayName = isRevealed ? patient.patient_name         : maskName(patient.patient_name);
   const displayRoom = isRevealed ? (patient.room_number || '—') : maskRoom(patient.room_number);
   const displayMRN  = isRevealed ? (patient.mrn || 'Not entered') : maskMRN(patient.mrn);
 
@@ -522,11 +587,13 @@ function renderAlertCard(container, patient, wardId) {
   const expiryClass = expired ? 'expired' : soon ? 'soon' : 'ok';
   const expiryText  = expired ? '⚠ Expired' : soon ? `⏳ ${daysLeft}d left` : `✓ ${daysLeft}d`;
 
+  // FIX: removed unstable id (was patientId + container.id which changed each render)
   const card = document.createElement('div');
   card.className = 'patient-card alert-card' + (expired ? ' expired' : soon ? ' expiring' : '');
-  card.id = 'alertcard-' + patient.id + '-' + container.id;
 
-  const missingTags = missing.map(m => `<span class="missing-tag">${m}</span>`).join('');
+  const missingTags = missing.length > 0
+    ? missing.map(m => `<span class="missing-tag">${m}</span>`).join('')
+    : '<span class="missing-tag" style="background:var(--green-light);color:var(--green)">No guideline in room</span>';
 
   card.innerHTML = `
     <div class="patient-card-header">
@@ -537,7 +604,7 @@ function renderAlertCard(container, patient, wardId) {
           <div class="patient-meta">
             <span>🚪 ${displayRoom}</span>
             <span>🆔 ${displayMRN}</span>
-            <span class="ward-tag">${wardLabels[wardId] || wardId}</span>
+            <span class="ward-tag">${WARD_LABELS[wardId] || wardId}</span>
           </div>
         </div>
       </div>
@@ -548,67 +615,34 @@ function renderAlertCard(container, patient, wardId) {
         <button class="edit-btn" onclick="openEditModal('${wardId}','${patient.id}')">✏️ Edit</button>
       </div>
     </div>
-    <div class="checklist-body" style="padding:10px 13px">
-      <div class="missing-banner" style="margin-top:0">
-        ⚠ Missing: ${missingTags}
-      </div>
-      <div style="margin-top:6px">
-        <span class="expiry-badge ${expiryClass}">${expiryText}</span>
-      </div>
+    <div class="checklist-body alert-card-body">
+      <div class="missing-banner" style="margin-top:0">⚠ ${missingTags}</div>
+      <span class="expiry-badge ${expiryClass}" style="margin-top:6px;display:inline-block">${expiryText}</span>
     </div>`;
 
   container.appendChild(card);
 }
 
-// Reveal for alert cards (re-renders both ward card and alert cards)
-function toggleRevealAlert(patientId, wardId) {
-  if (revealed[patientId]) {
-    clearTimeout(revealed[patientId]);
-    delete revealed[patientId];
-  } else {
-    revealed[patientId] = setTimeout(() => {
-      delete revealed[patientId];
-      WARDS.forEach(w => state[w].forEach(p => { if (p.id === patientId) renderCard(w, p); }));
-      renderAlerts();
-    }, 8000);
-  }
-  WARDS.forEach(w => state[w].forEach(p => { if (p.id === patientId) renderCard(w, p); }));
-  renderAlerts();
-}
-
-// ── Render the Alerts tab ─────────────────────────────────────
+// ── Render Alerts tab ─────────────────────────────────────────
 function renderAlerts() {
-  // Gather all patients across all wards
-  const allPatients = WARDS.flatMap(w => state[w].map(p => ({ ...p, _ward: w })));
+  const all = WARDS.flatMap(w => state[w].map(p => ({ ...p, _ward: w })));
 
-  const pending   = allPatients.filter(p => getMissingGuidelines(p).length > 0);
-  // No splinting = not set (null) OR answered No (false), and not marked N/A
-  const noSplint  = allPatients.filter(p => (p.splinting === null || p.splinting === false) && !p.splinting_na);
-  // No speech = not set (null) OR answered No (false)
-  const noSpeech  = allPatients.filter(p => p.speech === null || p.speech === false);
+  const pending  = all.filter(p => getMissingGuidelines(p).length > 0);
+  const noSplint = all.filter(p => (p.splinting === null || p.splinting === false) && !p.splinting_na);
+  const noSpeech = all.filter(p => p.speech === null || p.speech === false);
 
-  // Update badge on the tab
-  const totalAlerts = new Set([
-    ...pending.map(p => p.id),
-    ...noSplint.map(p => p.id),
-    ...noSpeech.map(p => p.id)
-  ]).size;
-  document.getElementById('badge-alerts').textContent = totalAlerts;
+  // Update badge via shared helper
+  refreshAlertBadge();
 
-  // Helper to populate a sub-grid
   function fillGrid(gridId, emptyId, countId, patients) {
     const grid  = document.getElementById(gridId);
     const empty = document.getElementById(emptyId);
     const count = document.getElementById(countId);
     if (!grid) return;
-    grid.innerHTML = '';
+    grid.innerHTML   = '';
     count.textContent = patients.length;
-    if (patients.length === 0) {
-      empty.style.display = 'block';
-    } else {
-      empty.style.display = 'none';
-      patients.forEach(p => renderAlertCard(grid, p, p._ward));
-    }
+    empty.style.display = patients.length === 0 ? 'block' : 'none';
+    patients.forEach(p => renderAlertCard(grid, p, p._ward));
   }
 
   fillGrid('grid-pending',  'empty-pending',  'count-pending',  pending);
@@ -631,18 +665,11 @@ function renderWard(wardId) {
   document.getElementById('empty-' + wardId).style.display =
     state[wardId].length === 0 ? 'block' : 'none';
   document.getElementById('badge-' + wardId).textContent = state[wardId].length;
-  // Silently refresh the alerts badge count
-  const allPatients = WARDS.flatMap(w => state[w].map(p => ({ ...p, _ward: w })));
-  const totalAlerts = new Set([
-    ...allPatients.filter(p => getMissingGuidelines(p).length > 0).map(p => p.id),
-    ...allPatients.filter(p => (p.splinting === null || p.splinting === false) && !p.splinting_na).map(p => p.id),
-    ...allPatients.filter(p => p.speech === null || p.speech === false).map(p => p.id)
-  ]).size;
-  const alertBadge = document.getElementById('badge-alerts');
-  if (alertBadge) alertBadge.textContent = totalAlerts;
+  // FIX: use shared helper instead of duplicating badge logic here
+  refreshAlertBadge();
 }
 
-// ── Load a ward from Supabase ─────────────────────────────────
+// ── Load ward from Supabase ───────────────────────────────────
 async function loadWard(wardId) {
   const { data, error } = await db
     .from('patients')
@@ -650,10 +677,7 @@ async function loadWard(wardId) {
     .eq('ward', wardId)
     .order('created_at', { ascending: true });
 
-  if (error) {
-    showToast('❌ Load error: ' + error.message, 'error');
-    return;
-  }
+  if (error) { showToast('❌ Load error: ' + error.message, 'error'); return; }
 
   state[wardId] = sortPatients(data || []);
   renderWard(wardId);
@@ -679,18 +703,20 @@ async function init() {
   setLoading(false);
 }
 
-// ── Realtime subscription ─────────────────────────────────────
+// ── Realtime subscription (live sync across devices) ──────────
 function subscribeRealtime() {
   if (!db) return;
   db.channel('patients-changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'patients' }, async payload => {
-      const ward = payload.new?.ward || payload.old?.ward;
-      if (ward && WARDS.includes(ward)) await loadWard(ward);
-    })
+    .on('postgres_changes',
+      { event: '*', schema: 'public', table: 'patients' },
+      async payload => {
+        const ward = payload.new?.ward || payload.old?.ward;
+        if (ward && WARDS.includes(ward)) await loadWard(ward);
+      })
     .subscribe();
 }
 
-// ── Event listeners ───────────────────────────────────────────
+// ── Keyboard & overlay event listeners ───────────────────────
 document.getElementById('modal').addEventListener('click', e => {
   if (e.target === document.getElementById('modal')) closeModal();
 });
