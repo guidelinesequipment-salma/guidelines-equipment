@@ -4,7 +4,7 @@
 //  Data always comes live from Supabase when online.
 // ============================================================
 
-const CACHE_NAME = 'rehab-checklist-v1';
+const CACHE_NAME = 'rehab-checklist-v4';
 
 // Files that make up the app shell (UI only — data stays in Supabase)
 const APP_SHELL = [
