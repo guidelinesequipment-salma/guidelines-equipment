@@ -260,10 +260,14 @@ async function submitModal() {
 
   nameEl.style.borderColor = '';
 
+  // Save ward/editingId before closeModal() clears them
+  const wardToLoad = currentWard;
+  const idToEdit   = editingId;
+
   closeModal();
   setLoading(true);
 
-  if (editingId) {
+  if (idToEdit) {
     // FIX: do not send `ward` in update — it never changes
     const { error } = await db.from('patients').update({
       patient_name:         name,
@@ -278,7 +282,7 @@ async function submitModal() {
       note_positional:      notePos || null,
       note_splinting:       noteSpl || null,
       note_speech:          noteSpe || null,
-    }).eq('id', editingId);
+    }).eq('id', idToEdit);
 
     if (error) { showToast('❌ Save failed: ' + error.message, 'error'); setLoading(false); return; }
     showToast('✓ Patient updated', 'success');
@@ -303,7 +307,7 @@ async function submitModal() {
     showToast('✓ Patient added', 'success');
   }
 
-  await loadWard(currentWard);
+  await loadWard(wardToLoad);
   // FIX: refresh alerts after any save so the alerts tab stays current
   refreshAlertBadge();
   setLoading(false);
