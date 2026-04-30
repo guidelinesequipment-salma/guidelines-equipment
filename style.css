@@ -233,19 +233,6 @@ header p  { font-size: 0.73rem; color: #a0b0c0; margin-top: 1px; }
 
 .card-actions { display: flex; align-items: center; gap: 4px; flex-shrink: 0; }
 
-.reveal-btn {
-  background: none;
-  border: 1px solid var(--teal-mid);
-  border-radius: 4px;
-  font-size: 0.65rem;
-  padding: 2px 6px;
-  cursor: pointer;
-  color: var(--teal);
-  font-family: 'DM Sans', sans-serif;
-  transition: all 0.12s;
-  white-space: nowrap;
-}
-.reveal-btn:hover { background: var(--teal); color: white; }
 
 .edit-btn {
   background: none;

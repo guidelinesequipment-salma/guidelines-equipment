@@ -18,7 +18,6 @@ try {
 
 // ── Local state ──────────────────────────────────────────────
 const state = { ward_a: [], ward_b: [], icu_1: [], icu_2: [] };
-let revealed    = {};   // patientId → auto-hide timeout handle
 let currentWard = null;
 let editingId   = null;
 let modalForm   = {
@@ -56,29 +55,6 @@ function roomSortKey(room) {
 function sortPatients(arr) {
   return [...arr].sort((a, b) =>
     roomSortKey(a.room_number).localeCompare(roomSortKey(b.room_number)));
-}
-
-// ── Masking ──────────────────────────────────────────────────
-function maskName(name) {
-  // FIX: filter empty parts so extra spaces don't produce blank tokens
-  return (name || '').trim().split(' ')
-    .filter(p => p.length > 0)
-    .map(p => p[0] + '●'.repeat(Math.max(p.length - 1, 2)))
-    .join(' ');
-}
-function maskMRN(mrn) {
-  if (!mrn) return '—';
-  return mrn.slice(0, 2) + '●●●●' + mrn.slice(-2);
-}
-function maskRoom(room) {
-  if (!room) return '—';
-  if (room.length <= 3) return room[0] + '●●';
-  return room[0] + '●●' + room.slice(-1);
-}
-function getInitials(name) {
-  // FIX: filter empty parts to avoid blank initials from extra spaces
-  const parts = (name || '').trim().split(' ').filter(p => p.length > 0);
-  return parts.length ? parts.map(w => w[0]).join('').toUpperCase().slice(0, 2) : '??';
 }
 
 // ── Expiry ───────────────────────────────────────────────────
@@ -408,50 +384,6 @@ function updateNote(wardId, patientId, section, value) {
   }, 1200);
 }
 
-// ── Reveal / mask patient info ────────────────────────────────
-function toggleReveal(patientId) {
-  // FIX: only re-render the ward that owns this patient, not all wards
-  const ownerWard = WARDS.find(w => state[w].some(p => p.id === patientId));
-
-  if (revealed[patientId]) {
-    clearTimeout(revealed[patientId]);
-    delete revealed[patientId];
-  } else {
-    revealed[patientId] = setTimeout(() => {
-      delete revealed[patientId];
-      if (ownerWard) {
-        const patient = getPatient(ownerWard, patientId);
-        if (patient) renderCard(ownerWard, patient);
-      }
-    }, 8000);
-  }
-
-  if (ownerWard) {
-    const patient = getPatient(ownerWard, patientId);
-    if (patient) renderCard(ownerWard, patient);
-  }
-}
-
-// ── Reveal / mask from alert cards ───────────────────────────
-function toggleRevealAlert(patientId, wardId) {
-  // FIX: only re-render the specific ward card + refresh alerts view
-  if (revealed[patientId]) {
-    clearTimeout(revealed[patientId]);
-    delete revealed[patientId];
-  } else {
-    revealed[patientId] = setTimeout(() => {
-      delete revealed[patientId];
-      const patient = getPatient(wardId, patientId);
-      if (patient) renderCard(wardId, patient);
-      renderAlerts();
-    }, 8000);
-  }
-
-  const patient = getPatient(wardId, patientId);
-  if (patient) renderCard(wardId, patient);
-  renderAlerts();
-}
-
 // ── Get patient from local state ──────────────────────────────
 function getPatient(wardId, patientId) {
   return state[wardId]?.find(p => p.id === patientId);
@@ -463,12 +395,11 @@ function renderCard(wardId, patient) {
   if (!el) return;
 
   const { pct, daysLeft, expired, soon } = getExpiryInfo(patient);
-  const isRevealed = !!revealed[patient.id];
   const missing    = getMissingGuidelines(patient);
 
-  const displayName = isRevealed ? patient.patient_name    : maskName(patient.patient_name);
-  const displayRoom = isRevealed ? (patient.room_number || '—') : maskRoom(patient.room_number);
-  const displayMRN  = isRevealed ? (patient.mrn || 'Not entered') : maskMRN(patient.mrn);
+  const displayName = patient.patient_name || '—';
+  const displayRoom = patient.room_number || '—';
+  const displayMRN  = patient.mrn || 'Not entered';
 
   el.className = 'patient-card' + (expired ? ' expired' : soon ? ' expiring' : '');
 
@@ -511,9 +442,6 @@ function renderCard(wardId, patient) {
         </div>
       </div>
       <div class="card-actions">
-        <button class="reveal-btn" onclick="toggleReveal('${patient.id}')">
-          ${isRevealed ? '🙈 Hide' : '👁 Reveal'}
-        </button>
         <button class="edit-btn" onclick="openEditModal('${wardId}','${patient.id}')">✏️ Edit</button>
         <button class="delete-btn" onclick="deletePatient('${wardId}','${patient.id}')" title="Remove">✕</button>
       </div>
@@ -577,11 +505,10 @@ function renderCard(wardId, patient) {
 // ── Render compact alert card ─────────────────────────────────
 function renderAlertCard(container, patient, wardId) {
   const missing    = getMissingGuidelines(patient);
-  const isRevealed = !!revealed[patient.id];
 
-  const displayName = isRevealed ? patient.patient_name         : maskName(patient.patient_name);
-  const displayRoom = isRevealed ? (patient.room_number || '—') : maskRoom(patient.room_number);
-  const displayMRN  = isRevealed ? (patient.mrn || 'Not entered') : maskMRN(patient.mrn);
+  const displayName = patient.patient_name || '—';
+  const displayRoom = patient.room_number || '—';
+  const displayMRN  = patient.mrn || 'Not entered';
 
   const { expired, soon, daysLeft } = getExpiryInfo(patient);
   const expiryClass = expired ? 'expired' : soon ? 'soon' : 'ok';
@@ -609,9 +536,6 @@ function renderAlertCard(container, patient, wardId) {
         </div>
       </div>
       <div class="card-actions">
-        <button class="reveal-btn" onclick="toggleRevealAlert('${patient.id}','${wardId}')">
-          ${isRevealed ? '🙈 Hide' : '👁 Reveal'}
-        </button>
         <button class="edit-btn" onclick="openEditModal('${wardId}','${patient.id}')">✏️ Edit</button>
       </div>
     </div>
