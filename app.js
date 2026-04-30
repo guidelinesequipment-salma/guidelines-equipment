@@ -60,7 +60,7 @@ function sortPatients(arr) {
 // ── Helpers ──────────────────────────────────────────────────
 function getInitials(name) {
   const parts = (name || '').trim().split(' ').filter(p => p.length > 0);
-  return parts.length ? parts.map(w => w[0]).join('').toUpperCase().slice(0, 2) : '—';
+  return parts.length ? parts.map(w => w[0]).join('').toUpperCase().slice(0, 2) : '??';
 }
 
 // ── Expiry ───────────────────────────────────────────────────
@@ -258,6 +258,7 @@ async function submitModal() {
   const noteSpe = document.getElementById('note-speech').value.trim();
   const nameEl  = document.getElementById('input-name');
 
+  if (!name) { nameEl.style.borderColor = 'var(--red)'; nameEl.focus(); return; }
   nameEl.style.borderColor = '';
 
   // Save ward/editingId before closeModal() clears them
