@@ -25,6 +25,7 @@
   <button class="tab" onclick="switchTab('ward_b',this)">🛏 Ward B <span class="badge" id="badge-ward_b">0</span></button>
   <button class="tab" onclick="switchTab('icu_1',this)">🔴 ICU 1 <span class="badge" id="badge-icu_1">0</span></button>
   <button class="tab" onclick="switchTab('icu_2',this)">🔴 ICU 2 <span class="badge" id="badge-icu_2">0</span></button>
+  <button class="tab tab-alerts" onclick="switchTab('alerts',this)">⚠️ Alerts <span class="badge badge-alerts" id="badge-alerts">0</span></button>
 </div>
 
 <div class="main">
@@ -68,6 +69,52 @@
     </div>
     <div class="patients-grid" id="grid-icu_2"></div>
     <div class="empty-state" id="empty-icu_2"><div class="icon">👤</div><p>No patients yet.<br>Click <strong>+ Add Patient</strong> to begin.</p></div>
+  </div>
+
+  <!-- Alerts Panel -->
+  <div class="ward-panel" id="panel-alerts">
+    <div class="ward-header">
+      <div class="ward-title">
+        <span class="ward-emoji">⚠️</span>
+        <div>
+          <div class="ward-name">Alerts</div>
+          <div class="ward-sub">Patients with pending, missing splinting, or missing speech guidelines</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Sub-section: Pending guidelines -->
+    <div class="alert-section">
+      <div class="alert-section-header pending-header">
+        <span>⏳ Pending Guidelines</span>
+        <span class="alert-count" id="count-pending">0</span>
+      </div>
+      <div class="alert-section-desc">Patients who have at least one guideline not yet set (not positional, splinting, or speech).</div>
+      <div class="patients-grid" id="grid-pending"></div>
+      <div class="empty-state alert-empty" id="empty-pending"><div class="icon">✅</div><p>No patients with pending guidelines.</p></div>
+    </div>
+
+    <!-- Sub-section: No splinting guideline -->
+    <div class="alert-section">
+      <div class="alert-section-header splint-header">
+        <span>🦾 No Splinting Guideline</span>
+        <span class="alert-count" id="count-nosplint">0</span>
+      </div>
+      <div class="alert-section-desc">Patients who have no splinting guideline set (not Yes, No, or N/A).</div>
+      <div class="patients-grid" id="grid-nosplint"></div>
+      <div class="empty-state alert-empty" id="empty-nosplint"><div class="icon">✅</div><p>All patients have a splinting guideline.</p></div>
+    </div>
+
+    <!-- Sub-section: No speech guideline -->
+    <div class="alert-section">
+      <div class="alert-section-header speech-header">
+        <span>🗣 No Speech Guideline</span>
+        <span class="alert-count" id="count-nospeech">0</span>
+      </div>
+      <div class="alert-section-desc">Patients who have no speech guideline set (not Yes or No).</div>
+      <div class="patients-grid" id="grid-nospeech"></div>
+      <div class="empty-state alert-empty" id="empty-nospeech"><div class="icon">✅</div><p>All patients have a speech guideline.</p></div>
+    </div>
   </div>
 </div>
 

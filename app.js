@@ -115,6 +115,7 @@ function switchTab(wardId, btn) {
   document.querySelectorAll('.ward-panel').forEach(p => p.classList.remove('active'));
   btn.classList.add('active');
   document.getElementById('panel-' + wardId).classList.add('active');
+  if (wardId === 'alerts') renderAlerts();
 }
 
 // ── Modal helpers ─────────────────────────────────────────────
@@ -506,7 +507,115 @@ function renderCard(wardId, patient) {
     </div>`;
 }
 
+// ── Render alert card (compact, read-only) ───────────────────
+function renderAlertCard(container, patient, wardId) {
+  const wardLabels = {
+    ward_a: 'Ward A', ward_b: 'Ward B', icu_1: 'ICU 1', icu_2: 'ICU 2'
+  };
+  const missing    = getMissingGuidelines(patient);
+  const isRevealed = !!revealed[patient.id];
+  const displayName = isRevealed ? patient.patient_name : maskName(patient.patient_name);
+  const displayRoom = isRevealed ? (patient.room_number || '—') : maskRoom(patient.room_number);
+  const displayMRN  = isRevealed ? (patient.mrn || 'Not entered') : maskMRN(patient.mrn);
+
+  const { expired, soon, daysLeft } = getExpiryInfo(patient);
+  const expiryClass = expired ? 'expired' : soon ? 'soon' : 'ok';
+  const expiryText  = expired ? '⚠ Expired' : soon ? `⏳ ${daysLeft}d left` : `✓ ${daysLeft}d`;
+
+  const card = document.createElement('div');
+  card.className = 'patient-card alert-card' + (expired ? ' expired' : soon ? ' expiring' : '');
+  card.id = 'alertcard-' + patient.id + '-' + container.id;
+
+  const missingTags = missing.map(m => `<span class="missing-tag">${m}</span>`).join('');
+
+  card.innerHTML = `
+    <div class="patient-card-header">
+      <div class="patient-info">
+        <div class="patient-avatar">${getInitials(patient.patient_name)}</div>
+        <div>
+          <div class="patient-name">${displayName}</div>
+          <div class="patient-meta">
+            <span>🚪 ${displayRoom}</span>
+            <span>🆔 ${displayMRN}</span>
+            <span class="ward-tag">${wardLabels[wardId] || wardId}</span>
+          </div>
+        </div>
+      </div>
+      <div class="card-actions">
+        <button class="reveal-btn" onclick="toggleRevealAlert('${patient.id}','${wardId}')">
+          ${isRevealed ? '🙈 Hide' : '👁 Reveal'}
+        </button>
+        <button class="edit-btn" onclick="openEditModal('${wardId}','${patient.id}')">✏️ Edit</button>
+      </div>
+    </div>
+    <div class="checklist-body" style="padding:10px 13px">
+      <div class="missing-banner" style="margin-top:0">
+        ⚠ Missing: ${missingTags}
+      </div>
+      <div style="margin-top:6px">
+        <span class="expiry-badge ${expiryClass}">${expiryText}</span>
+      </div>
+    </div>`;
+
+  container.appendChild(card);
+}
+
+// Reveal for alert cards (re-renders both ward card and alert cards)
+function toggleRevealAlert(patientId, wardId) {
+  if (revealed[patientId]) {
+    clearTimeout(revealed[patientId]);
+    delete revealed[patientId];
+  } else {
+    revealed[patientId] = setTimeout(() => {
+      delete revealed[patientId];
+      WARDS.forEach(w => state[w].forEach(p => { if (p.id === patientId) renderCard(w, p); }));
+      renderAlerts();
+    }, 8000);
+  }
+  WARDS.forEach(w => state[w].forEach(p => { if (p.id === patientId) renderCard(w, p); }));
+  renderAlerts();
+}
+
+// ── Render the Alerts tab ─────────────────────────────────────
+function renderAlerts() {
+  // Gather all patients across all wards
+  const allPatients = WARDS.flatMap(w => state[w].map(p => ({ ...p, _ward: w })));
+
+  const pending   = allPatients.filter(p => getMissingGuidelines(p).length > 0);
+  const noSplint  = allPatients.filter(p => p.splinting === null && !p.splinting_na);
+  const noSpeech  = allPatients.filter(p => p.speech === null);
+
+  // Update badge on the tab
+  const totalAlerts = new Set([
+    ...pending.map(p => p.id),
+    ...noSplint.map(p => p.id),
+    ...noSpeech.map(p => p.id)
+  ]).size;
+  document.getElementById('badge-alerts').textContent = totalAlerts;
+
+  // Helper to populate a sub-grid
+  function fillGrid(gridId, emptyId, countId, patients) {
+    const grid  = document.getElementById(gridId);
+    const empty = document.getElementById(emptyId);
+    const count = document.getElementById(countId);
+    if (!grid) return;
+    grid.innerHTML = '';
+    count.textContent = patients.length;
+    if (patients.length === 0) {
+      empty.style.display = 'block';
+    } else {
+      empty.style.display = 'none';
+      patients.forEach(p => renderAlertCard(grid, p, p._ward));
+    }
+  }
+
+  fillGrid('grid-pending',  'empty-pending',  'count-pending',  pending);
+  fillGrid('grid-nosplint', 'empty-nosplint', 'count-nosplint', noSplint);
+  fillGrid('grid-nospeech', 'empty-nospeech', 'count-nospeech', noSpeech);
+}
+
 // ── Render full ward grid ─────────────────────────────────────
+function renderWard(wardId) {// ── Render full ward grid ─────────────────────────────────────
 function renderWard(wardId) {
   const grid = document.getElementById('grid-' + wardId);
   if (!grid) return;
@@ -521,6 +630,15 @@ function renderWard(wardId) {
   document.getElementById('empty-' + wardId).style.display =
     state[wardId].length === 0 ? 'block' : 'none';
   document.getElementById('badge-' + wardId).textContent = state[wardId].length;
+  // Silently refresh the alerts badge count
+  const allPatients = WARDS.flatMap(w => state[w].map(p => ({ ...p, _ward: w })));
+  const totalAlerts = new Set([
+    ...allPatients.filter(p => getMissingGuidelines(p).length > 0).map(p => p.id),
+    ...allPatients.filter(p => p.splinting === null && !p.splinting_na).map(p => p.id),
+    ...allPatients.filter(p => p.speech === null).map(p => p.id)
+  ]).size;
+  const alertBadge = document.getElementById('badge-alerts');
+  if (alertBadge) alertBadge.textContent = totalAlerts;
 }
 
 // ── Load a ward from Supabase ─────────────────────────────────
