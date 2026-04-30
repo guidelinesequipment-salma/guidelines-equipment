@@ -1,0 +1,24 @@
+{
+  "name": "Patient Care Checklist",
+  "short_name": "Care Checklist",
+  "description": "Positional, Splinting & Speech guidelines across Ward A, Ward B, ICU 1 and ICU 2",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1e2a35",
+  "theme_color": "#0f7b8c",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
