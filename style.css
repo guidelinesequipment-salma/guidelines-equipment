@@ -223,9 +223,10 @@ header p  { font-size: 0.73rem; color: #a0b0c0; margin-top: 1px; }
   max-width: 130px;
 }
 .patient-meta {
-  font-size: 0.7rem;
-  color: var(--muted);
-  margin-top: 2px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--slate);
+  margin-top: 3px;
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
