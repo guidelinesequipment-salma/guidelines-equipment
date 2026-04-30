@@ -615,7 +615,6 @@ function renderAlerts() {
 }
 
 // ── Render full ward grid ─────────────────────────────────────
-function renderWard(wardId) {// ── Render full ward grid ─────────────────────────────────────
 function renderWard(wardId) {
   const grid = document.getElementById('grid-' + wardId);
   if (!grid) return;
