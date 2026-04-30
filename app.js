@@ -16,15 +16,19 @@ try {
 
 // ── Local state (mirrors DB) ─────────────────────────────────
 const state = { ward_a: [], ward_b: [], icu_1: [], icu_2: [] };
-let revealed   = {};   // patientId → timeout handle
+let revealed    = {};
 let currentWard = null;
 let editingId   = null;
-let modalForm   = { supine: false, sidelying: false, splinting: null, speech: null };
-let saveTimers  = {};  // patientId → debounce handle for note autosave
+let modalForm   = {
+  supine: false, sidelying: false, positional_na: false,
+  splinting: null, splinting_na: false,
+  speech: null
+};
+let saveTimers = {};
 
 // ── Status indicator ─────────────────────────────────────────
 function setStatus(type, text) {
-  document.getElementById('status-dot').className  = 'status-dot ' + type;
+  document.getElementById('status-dot').className   = 'status-dot ' + type;
   document.getElementById('status-text').textContent = text;
 }
 
@@ -71,15 +75,38 @@ function getInitials(name) {
 
 // ── Expiry ───────────────────────────────────────────────────
 function getExpiryInfo(patient) {
-  const createdAt  = new Date(patient.created_at).getTime();
-  const expiresAt  = createdAt + THREE_MONTHS_MS;
-  const now        = Date.now();
-  const remaining  = expiresAt - now;
-  const pct        = Math.min(100, Math.round(((now - createdAt) / THREE_MONTHS_MS) * 100));
-  const daysLeft   = Math.ceil(remaining / (24 * 60 * 60 * 1000));
-  const expired    = remaining <= 0;
-  const soon       = !expired && daysLeft <= 14;
+  const createdAt = new Date(patient.created_at).getTime();
+  const expiresAt = createdAt + THREE_MONTHS_MS;
+  const now       = Date.now();
+  const remaining = expiresAt - now;
+  const pct       = Math.min(100, Math.round(((now - createdAt) / THREE_MONTHS_MS) * 100));
+  const daysLeft  = Math.ceil(remaining / (24 * 60 * 60 * 1000));
+  const expired   = remaining <= 0;
+  const soon      = !expired && daysLeft <= 14;
   return { pct, daysLeft, expired, soon };
+}
+
+// ── Incomplete guidelines check ───────────────────────────────
+// Returns array of label strings for any guideline not yet set
+function getMissingGuidelines(patient) {
+  const missing = [];
+
+  // Positional: missing if none of supine, sidelying, or N/A is set
+  if (!patient.positional_supine && !patient.positional_sidelying && !patient.positional_na) {
+    missing.push('Positional');
+  }
+
+  // Splinting: missing if null and not N/A
+  if (patient.splinting === null && !patient.splinting_na) {
+    missing.push('Splinting');
+  }
+
+  // Speech: missing if null (speech has no N/A option)
+  if (patient.speech === null) {
+    missing.push('Speech');
+  }
+
+  return missing;
 }
 
 // ── Tab switching ─────────────────────────────────────────────
@@ -92,15 +119,60 @@ function switchTab(wardId, btn) {
 
 // ── Modal helpers ─────────────────────────────────────────────
 function togglePill(key) {
+  // If clicking N/A for positional, turn off supine & sidelying
+  if (key === 'positional_na') {
+    modalForm.positional_na = !modalForm.positional_na;
+    if (modalForm.positional_na) {
+      modalForm.supine    = false;
+      modalForm.sidelying = false;
+      document.getElementById('pill-supine').classList.remove('active');
+      document.getElementById('pill-sidelying').classList.remove('active');
+    }
+    document.getElementById('pill-positional_na').classList.toggle('active', modalForm.positional_na);
+    return;
+  }
+  // If clicking supine or sidelying, turn off N/A
+  if (key === 'supine' || key === 'sidelying') {
+    modalForm[key] = !modalForm[key];
+    if (modalForm[key]) {
+      modalForm.positional_na = false;
+      document.getElementById('pill-positional_na').classList.remove('active');
+    }
+    document.getElementById('pill-' + key).classList.toggle('active', modalForm[key]);
+    return;
+  }
   modalForm[key] = !modalForm[key];
   document.getElementById('pill-' + key).classList.toggle('active', modalForm[key]);
 }
 
 function toggleYN(field, val) {
-  const boolVal = (val === 'yes');
-  modalForm[field] = (modalForm[field] === boolVal) ? null : boolVal;
-  // HTML uses 'splint' not 'splinting' in the button IDs
+  // Handle N/A for splinting
+  if (val === 'na') {
+    modalForm.splinting_na = !modalForm.splinting_na;
+    if (modalForm.splinting_na) {
+      modalForm.splinting = null;
+      const yEl = document.getElementById('yn-splint-yes');
+      const nEl = document.getElementById('yn-splint-no');
+      if (yEl) yEl.classList.remove('active');
+      if (nEl) nEl.classList.remove('active');
+    }
+    const naEl = document.getElementById('yn-splint-na');
+    if (naEl) naEl.classList.toggle('active', modalForm.splinting_na);
+    return;
+  }
+
+  const boolVal    = (val === 'yes');
   const shortField = field === 'splinting' ? 'splint' : field;
+
+  // If picking yes/no for splinting, clear N/A
+  if (field === 'splinting') {
+    modalForm.splinting_na = false;
+    const naEl = document.getElementById('yn-splint-na');
+    if (naEl) naEl.classList.remove('active');
+  }
+
+  modalForm[field] = (modalForm[field] === boolVal) ? null : boolVal;
+
   const yesEl = document.getElementById('yn-' + shortField + '-yes');
   const noEl  = document.getElementById('yn-' + shortField + '-no');
   if (yesEl) yesEl.classList.toggle('active', modalForm[field] === true);
@@ -113,11 +185,17 @@ function resetModal() {
     const el = document.getElementById(id);
     if (el) { el.value = ''; el.style.borderColor = ''; }
   });
-  modalForm = { supine: false, sidelying: false, splinting: null, speech: null };
-  ['pill-supine', 'pill-sidelying'].forEach(id =>
-    document.getElementById(id).classList.remove('active'));
-  ['yn-splint-yes', 'yn-splint-no', 'yn-speech-yes', 'yn-speech-no'].forEach(id =>
-    document.getElementById(id).classList.remove('active'));
+  modalForm = {
+    supine: false, sidelying: false, positional_na: false,
+    splinting: null, splinting_na: false,
+    speech: null
+  };
+  ['pill-supine', 'pill-sidelying', 'pill-positional_na',
+   'yn-splint-yes', 'yn-splint-no', 'yn-splint-na',
+   'yn-speech-yes', 'yn-speech-no'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('active');
+  });
 }
 
 function openModal(ward) {
@@ -138,24 +216,28 @@ function openEditModal(wardId, patientId) {
   editingId   = patientId;
   resetModal();
 
-  document.getElementById('input-name').value       = p.patient_name;
-  document.getElementById('input-room').value       = p.room_number;
-  document.getElementById('input-mrn').value        = p.mrn || '';
-  document.getElementById('note-positional').value  = p.note_positional || '';
-  document.getElementById('note-splinting').value   = p.note_splinting  || '';
-  document.getElementById('note-speech').value      = p.note_speech     || '';
+  document.getElementById('input-name').value      = p.patient_name;
+  document.getElementById('input-room').value      = p.room_number;
+  document.getElementById('input-mrn').value       = p.mrn || '';
+  document.getElementById('note-positional').value = p.note_positional || '';
+  document.getElementById('note-splinting').value  = p.note_splinting  || '';
+  document.getElementById('note-speech').value     = p.note_speech     || '';
 
-  modalForm.supine    = !!p.positional_supine;
-  modalForm.sidelying = !!p.positional_sidelying;
-  modalForm.splinting = p.splinting;
-  modalForm.speech    = p.speech;
+  modalForm.supine         = !!p.positional_supine;
+  modalForm.sidelying      = !!p.positional_sidelying;
+  modalForm.positional_na  = !!p.positional_na;
+  modalForm.splinting      = p.splinting;
+  modalForm.splinting_na   = !!p.splinting_na;
+  modalForm.speech         = p.speech;
 
-  document.getElementById('pill-supine').classList.toggle('active',    modalForm.supine);
-  document.getElementById('pill-sidelying').classList.toggle('active', modalForm.sidelying);
-  document.getElementById('yn-splint-yes').classList.toggle('active',  modalForm.splinting === true);
-  document.getElementById('yn-splint-no').classList.toggle('active',   modalForm.splinting === false);
-  document.getElementById('yn-speech-yes').classList.toggle('active',  modalForm.speech === true);
-  document.getElementById('yn-speech-no').classList.toggle('active',   modalForm.speech === false);
+  document.getElementById('pill-supine').classList.toggle('active',        modalForm.supine);
+  document.getElementById('pill-sidelying').classList.toggle('active',     modalForm.sidelying);
+  document.getElementById('pill-positional_na').classList.toggle('active', modalForm.positional_na);
+  document.getElementById('yn-splint-yes').classList.toggle('active',      modalForm.splinting === true);
+  document.getElementById('yn-splint-no').classList.toggle('active',       modalForm.splinting === false);
+  document.getElementById('yn-splint-na').classList.toggle('active',       modalForm.splinting_na);
+  document.getElementById('yn-speech-yes').classList.toggle('active',      modalForm.speech === true);
+  document.getElementById('yn-speech-no').classList.toggle('active',       modalForm.speech === false);
 
   document.getElementById('modal-title').textContent      = '✏️ Edit Patient';
   document.getElementById('modal-submit-btn').textContent = 'Save Changes';
@@ -189,7 +271,9 @@ async function submitModal() {
     mrn:                  mrn || null,
     positional_supine:    modalForm.supine,
     positional_sidelying: modalForm.sidelying,
-    splinting:            modalForm.splinting,
+    positional_na:        modalForm.positional_na,
+    splinting:            modalForm.splinting_na ? null : modalForm.splinting,
+    splinting_na:         modalForm.splinting_na,
     speech:               modalForm.speech,
     note_positional:      notePos || null,
     note_splinting:       noteSpl || null,
@@ -224,26 +308,51 @@ async function deletePatient(wardId, patientId) {
   setLoading(false);
 }
 
-// ── Toggle positional pill (auto-save) ───────────────────────
+// ── Toggle positional pill on card (auto-save) ────────────────
 async function togglePositional(wardId, patientId, key) {
   const p = getPatient(wardId, patientId);
   if (!p) return;
+
+  if (key === 'na') {
+    p.positional_na = !p.positional_na;
+    if (p.positional_na) { p.positional_supine = false; p.positional_sidelying = false; }
+    renderCard(wardId, p);
+    await db.from('patients').update({
+      positional_na: p.positional_na,
+      positional_supine: p.positional_supine,
+      positional_sidelying: p.positional_sidelying
+    }).eq('id', patientId);
+    return;
+  }
+
   const field = 'positional_' + key;
   p[field] = !p[field];
+  if (p[field]) p.positional_na = false; // turning on supine/sidelying clears N/A
   renderCard(wardId, p);
-  await db.from('patients').update({ [field]: p[field] }).eq('id', patientId);
+  await db.from('patients').update({ [field]: p[field], positional_na: p.positional_na }).eq('id', patientId);
 }
 
-// ── Toggle Yes/No (auto-save) ─────────────────────────────────
+// ── Toggle Yes/No/NA on card (auto-save) ─────────────────────
 async function setYesNo(wardId, patientId, field, val) {
   const p = getPatient(wardId, patientId);
   if (!p) return;
-  // val arrives as a string ("true"/"false") from inline HTML onclick,
-  // so normalise it to a real boolean before comparing.
+
+  if (val === 'na') {
+    p.splinting_na = !p.splinting_na;
+    if (p.splinting_na) p.splinting = null;
+    renderCard(wardId, p);
+    await db.from('patients').update({ splinting: p.splinting, splinting_na: p.splinting_na }).eq('id', patientId);
+    return;
+  }
+
   const boolVal = (val === true || val === 'true');
+  if (field === 'splinting') p.splinting_na = false;
   p[field] = (p[field] === boolVal) ? null : boolVal;
   renderCard(wardId, p);
-  await db.from('patients').update({ [field]: p[field] }).eq('id', patientId);
+
+  const updatePayload = { [field]: p[field] };
+  if (field === 'splinting') updatePayload.splinting_na = false;
+  await db.from('patients').update(updatePayload).eq('id', patientId);
 }
 
 // ── Note auto-save (debounced 1.2s) ──────────────────────────
@@ -252,7 +361,6 @@ function updateNote(wardId, patientId, section, value) {
   if (!p) return;
   const field = 'note_' + section;
   p[field] = value;
-
   clearTimeout(saveTimers[patientId + field]);
   saveTimers[patientId + field] = setTimeout(async () => {
     await db.from('patients').update({ [field]: value || null }).eq('id', patientId);
@@ -285,6 +393,7 @@ function renderCard(wardId, patient) {
 
   const { pct, daysLeft, expired, soon } = getExpiryInfo(patient);
   const isRevealed = !!revealed[patient.id];
+  const missing    = getMissingGuidelines(patient);
 
   const displayName = isRevealed ? patient.patient_name : maskName(patient.patient_name);
   const displayRoom = isRevealed ? (patient.room_number || '—') : maskRoom(patient.room_number);
@@ -293,19 +402,28 @@ function renderCard(wardId, patient) {
   el.className = 'patient-card' + (expired ? ' expired' : soon ? ' expiring' : '');
 
   const barColor    = expired ? 'var(--red)' : soon ? 'var(--orange)' : 'var(--green)';
-  const expiryClass = expired ? 'expired'    : soon ? 'soon'           : 'ok';
+  const expiryClass = expired ? 'expired'    : soon ? 'soon'          : 'ok';
   const expiryText  = expired
     ? '⚠ Expired — renew now'
     : soon
       ? `⏳ ${daysLeft}d left — renew soon`
       : `✓ ${daysLeft}d remaining`;
 
-  const supine    = !!patient.positional_supine;
-  const sidelying = !!patient.positional_sidelying;
-  const splintYes = patient.splinting === true;
-  const splintNo  = patient.splinting === false;
-  const speechYes = patient.speech === true;
-  const speechNo  = patient.speech === false;
+  // Missing guidelines banner
+  const missingBanner = missing.length > 0
+    ? `<div class="missing-banner">
+         ⚠ Pending: ${missing.map(m => `<span class="missing-tag">${m}</span>`).join('')}
+       </div>`
+    : `<div class="complete-banner">✅ All guidelines set</div>`;
+
+  const supine      = !!patient.positional_supine;
+  const sidelying   = !!patient.positional_sidelying;
+  const posNA       = !!patient.positional_na;
+  const splintYes   = patient.splinting === true  && !patient.splinting_na;
+  const splintNo    = patient.splinting === false && !patient.splinting_na;
+  const splintNA    = !!patient.splinting_na;
+  const speechYes   = patient.speech === true;
+  const speechNo    = patient.speech === false;
 
   const noteArea = (section, placeholder) =>
     `<textarea class="note-field" rows="2" placeholder="${placeholder}"
@@ -339,6 +457,8 @@ function renderCard(wardId, patient) {
       </div>
       <span class="expiry-badge ${expiryClass}">${expiryText}</span>
 
+      ${missingBanner}
+
       <div class="divider"></div>
 
       <div class="checklist-section">
@@ -352,6 +472,10 @@ function renderCard(wardId, patient) {
             onclick="togglePositional('${wardId}','${patient.id}','sidelying')">
             <span class="pill-dot"></span> Side-lying
           </label>
+          <label class="check-pill na-pill ${posNA ? 'checked' : ''}"
+            onclick="togglePositional('${wardId}','${patient.id}','na')">
+            <span class="pill-dot"></span> N/A
+          </label>
         </div>
         ${noteArea('positional', 'e.g. elevate head 30°, right side preferred…')}
       </div>
@@ -363,6 +487,8 @@ function renderCard(wardId, patient) {
             onclick="setYesNo('${wardId}','${patient.id}','splinting',true)">✓ Yes</button>
           <button class="yn-btn no ${splintNo ? 'active' : ''}"
             onclick="setYesNo('${wardId}','${patient.id}','splinting',false)">✕ No</button>
+          <button class="yn-btn na ${splintNA ? 'active' : ''}"
+            onclick="setYesNo('${wardId}','${patient.id}','splinting','na')">— N/A</button>
         </div>
         ${noteArea('splinting', 'e.g. resting hand splint, 2hrs on/off…')}
       </div>
@@ -383,7 +509,7 @@ function renderCard(wardId, patient) {
 // ── Render full ward grid ─────────────────────────────────────
 function renderWard(wardId) {
   const grid = document.getElementById('grid-' + wardId);
-  if (!grid) return;  // safety guard
+  if (!grid) return;
   grid.innerHTML = '';
   state[wardId].forEach(patient => {
     const div = document.createElement('div');
@@ -421,7 +547,6 @@ async function init() {
   setLoading(true);
   setStatus('', 'Connecting…');
 
-  // Test connection
   const { error: pingError } = await db.from('patients').select('id').limit(1);
   if (pingError) {
     setStatus('error', 'DB error');
@@ -431,18 +556,15 @@ async function init() {
   }
 
   setStatus('connected', 'Connected');
-
-  // Load all wards in parallel
   await Promise.all(WARDS.map(w => loadWard(w)));
   setLoading(false);
 }
 
-// ── Realtime subscription (live updates across devices) ───────
+// ── Realtime subscription ─────────────────────────────────────
 function subscribeRealtime() {
   if (!db) return;
   db.channel('patients-changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'patients' }, async payload => {
-      // Reload the affected ward
       const ward = payload.new?.ward || payload.old?.ward;
       if (ward && WARDS.includes(ward)) await loadWard(ward);
     })

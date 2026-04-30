@@ -532,3 +532,68 @@ header p  { font-size: 0.73rem; color: #a0b0c0; margin-top: 1px; }
 }
 .toast.success { background: var(--green); }
 .toast.error   { background: var(--red); }
+
+/* ── N/A pill variant ── */
+.check-pill.na-pill.checked {
+  background: var(--muted);
+  border-color: var(--muted);
+  color: white;
+}
+.check-pill.na-pill:hover {
+  border-color: var(--muted);
+  color: var(--muted);
+}
+.modal-pill.na-pill.active {
+  background: var(--muted);
+  border-color: var(--muted);
+  color: white;
+}
+
+/* ── N/A yes-no button ── */
+.yn-btn.na { flex: 0.7; }
+.yn-btn.na.active {
+  background: var(--muted);
+  border-color: var(--muted);
+  color: white;
+}
+.modal-yn button.na.active {
+  background: var(--muted);
+  border-color: var(--muted);
+  color: white;
+}
+
+/* ── Missing guidelines banner ── */
+.missing-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  background: #fff8e6;
+  border: 1px solid #f5c842;
+  border-radius: 8px;
+  padding: 7px 10px;
+  margin-top: 8px;
+  font-size: 0.74rem;
+  color: #7a5c00;
+  font-weight: 500;
+}
+.missing-tag {
+  background: #f5c842;
+  color: #5a4200;
+  border-radius: 20px;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+/* ── All complete banner ── */
+.complete-banner {
+  background: var(--green-light);
+  border: 1px solid #a8dfc0;
+  border-radius: 8px;
+  padding: 7px 10px;
+  margin-top: 8px;
+  font-size: 0.74rem;
+  color: var(--green);
+  font-weight: 600;
+}
