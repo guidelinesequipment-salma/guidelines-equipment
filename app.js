@@ -582,8 +582,10 @@ function renderAlerts() {
   const allPatients = WARDS.flatMap(w => state[w].map(p => ({ ...p, _ward: w })));
 
   const pending   = allPatients.filter(p => getMissingGuidelines(p).length > 0);
-  const noSplint  = allPatients.filter(p => p.splinting === null && !p.splinting_na);
-  const noSpeech  = allPatients.filter(p => p.speech === null);
+  // No splinting = not set (null) OR answered No (false), and not marked N/A
+  const noSplint  = allPatients.filter(p => (p.splinting === null || p.splinting === false) && !p.splinting_na);
+  // No speech = not set (null) OR answered No (false)
+  const noSpeech  = allPatients.filter(p => p.speech === null || p.speech === false);
 
   // Update badge on the tab
   const totalAlerts = new Set([
@@ -633,8 +635,8 @@ function renderWard(wardId) {
   const allPatients = WARDS.flatMap(w => state[w].map(p => ({ ...p, _ward: w })));
   const totalAlerts = new Set([
     ...allPatients.filter(p => getMissingGuidelines(p).length > 0).map(p => p.id),
-    ...allPatients.filter(p => p.splinting === null && !p.splinting_na).map(p => p.id),
-    ...allPatients.filter(p => p.speech === null).map(p => p.id)
+    ...allPatients.filter(p => (p.splinting === null || p.splinting === false) && !p.splinting_na).map(p => p.id),
+    ...allPatients.filter(p => p.speech === null || p.speech === false).map(p => p.id)
   ]).size;
   const alertBadge = document.getElementById('badge-alerts');
   if (alertBadge) alertBadge.textContent = totalAlerts;
