@@ -572,6 +572,14 @@ header p  { font-size: 0.73rem; color: #a0b0c0; margin-top: 1px; }
   font-size: 0.7rem;
   font-weight: 700;
 }
+.no-guideline-tag {
+  background: var(--green-light);
+  color: var(--green);
+  border-radius: 20px;
+  padding: 2px 8px;
+  font-size: 0.7rem;
+  font-weight: 700;
+}
 
 /* ── All complete banner ── */
 .complete-banner {
