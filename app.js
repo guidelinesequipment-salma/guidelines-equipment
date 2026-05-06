@@ -626,7 +626,7 @@ async function generateReport() {
     const { AlignmentType, BorderStyle, Document, Footer, Header,
             HeadingLevel, Packer, PageNumber, Paragraph, ShadingType,
             Table, TableCell, TableRow, TextRun, WidthType,
-            VerticalAlign, PageBreak } = docx;
+            VerticalAlign, PageBreak } = window.docx;
 
     const THREE_MONTHS_MS = 90 * 24 * 60 * 60 * 1000;
     const WARD_LABELS_R   = { ward_a:'Ward A', ward_b:'Ward B', icu_1:'ICU 1', icu_2:'ICU 2' };
