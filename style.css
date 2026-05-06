@@ -661,3 +661,22 @@ header p  { font-size: 0.73rem; color: #a0b0c0; margin-top: 1px; }
 
 /* ── Alert card (compact) ── */
 .alert-card { cursor: default; }
+
+/* ── Report button ── */
+.report-btn {
+  margin-left: auto;
+  background: var(--teal);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-family: 'DM Sans', sans-serif;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.report-btn:hover    { background: #0a6070; }
+.report-btn:disabled { opacity: 0.6; cursor: wait; }
